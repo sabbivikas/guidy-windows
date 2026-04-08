@@ -1,0 +1,110 @@
+<Window
+    x:Class="ClickyWindows.OverlayWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    WindowStyle="None"
+    AllowsTransparency="True"
+    Background="Transparent"
+    Topmost="True"
+    ShowInTaskbar="False"
+    IsHitTestVisible="False"
+    ResizeMode="NoResize">
+
+    <Canvas x:Name="RootCanvas" Background="Transparent">
+
+        <!-- Blue glowing cursor buddy.
+             Positioned dynamically in code-behind by polling GetCursorPos.
+             The outer glow is a large blurred ellipse; the inner shape is the
+             actual cursor indicator. -->
+        <Canvas x:Name="CursorCanvas"
+                Width="60" Height="60"
+                IsHitTestVisible="False">
+
+            <!-- Outer glow ring — soft blurred blue circle -->
+            <Ellipse x:Name="GlowEllipse"
+                     Width="60" Height="60"
+                     Canvas.Left="0" Canvas.Top="0"
+                     Opacity="0.35">
+                <Ellipse.Fill>
+                    <RadialGradientBrush>
+                        <GradientStop Color="#FF4488FF" Offset="0"/>
+                        <GradientStop Color="#664488FF" Offset="0.6"/>
+                        <GradientStop Color="#004488FF" Offset="1"/>
+                    </RadialGradientBrush>
+                </Ellipse.Fill>
+                <Ellipse.Effect>
+                    <BlurEffect Radius="12"/>
+                </Ellipse.Effect>
+            </Ellipse>
+
+            <!-- Inner solid blue circle — the "body" of the cursor buddy -->
+            <Ellipse x:Name="CoreEllipse"
+                     Width="20" Height="20"
+                     Canvas.Left="20" Canvas.Top="20"
+                     Opacity="0.95">
+                <Ellipse.Fill>
+                    <RadialGradientBrush>
+                        <GradientStop Color="#FFFFFFFF" Offset="0"/>
+                        <GradientStop Color="#FF88BBFF" Offset="0.4"/>
+                        <GradientStop Color="#FF3377FF" Offset="1"/>
+                    </RadialGradientBrush>
+                </Ellipse.Fill>
+            </Ellipse>
+
+            <!-- Waveform bars — visible only while listening -->
+            <StackPanel x:Name="WaveformPanel"
+                        Orientation="Horizontal"
+                        Canvas.Left="70" Canvas.Top="18"
+                        Visibility="Collapsed"
+                        HorizontalAlignment="Left">
+                <Rectangle x:Name="WaveBar1" Width="3" Height="8" Fill="#AA88BBFF" RadiusX="1.5" RadiusY="1.5" Margin="1,0"/>
+                <Rectangle x:Name="WaveBar2" Width="3" Height="14" Fill="#CCAACCFF" RadiusX="1.5" RadiusY="1.5" Margin="1,0"/>
+                <Rectangle x:Name="WaveBar3" Width="3" Height="10" Fill="#AA88BBFF" RadiusX="1.5" RadiusY="1.5" Margin="1,0"/>
+                <Rectangle x:Name="WaveBar4" Width="3" Height="18" Fill="#DDBBDDFF" RadiusX="1.5" RadiusY="1.5" Margin="1,0"/>
+                <Rectangle x:Name="WaveBar5" Width="3" Height="10" Fill="#AA88BBFF" RadiusX="1.5" RadiusY="1.5" Margin="1,0"/>
+            </StackPanel>
+        </Canvas>
+
+        <!-- Response text bubble — appears near the cursor when Claude responds.
+             Uses a dark rounded background with white text, similar to the macOS version. -->
+        <Border x:Name="ResponseBubble"
+                Canvas.Left="70" Canvas.Top="0"
+                MaxWidth="380"
+                Padding="14,10"
+                CornerRadius="12"
+                Visibility="Collapsed"
+                Opacity="0">
+            <Border.Background>
+                <SolidColorBrush Color="#E8111111"/>
+            </Border.Background>
+            <Border.Effect>
+                <DropShadowEffect Color="#88000000" BlurRadius="16" ShadowDepth="4" Direction="270"/>
+            </Border.Effect>
+            <TextBlock x:Name="ResponseTextBlock"
+                       Foreground="White"
+                       FontSize="14"
+                       FontFamily="Segoe UI"
+                       FontWeight="Light"
+                       TextWrapping="Wrap"
+                       LineHeight="20"/>
+        </Border>
+
+        <!-- Status label shown briefly when state changes (Listening..., Thinking...) -->
+        <Border x:Name="StatusBubble"
+                Canvas.Left="70" Canvas.Top="0"
+                Padding="10,6"
+                CornerRadius="8"
+                Visibility="Collapsed"
+                Opacity="0">
+            <Border.Background>
+                <SolidColorBrush Color="#CC1A1A2E"/>
+            </Border.Background>
+            <TextBlock x:Name="StatusTextBlock"
+                       Foreground="#FF8899CC"
+                       FontSize="12"
+                       FontFamily="Segoe UI"
+                       FontStyle="Italic"/>
+        </Border>
+
+    </Canvas>
+</Window>

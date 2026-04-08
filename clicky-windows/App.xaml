@@ -1,0 +1,10 @@
+<Application
+    x:Class="ClickyWindows.App"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    ShutdownMode="OnExplicitShutdown">
+    <!-- No StartupUri — we boot entirely from OnStartup in App.xaml.cs.
+         ShutdownMode=OnExplicitShutdown means the process only exits when
+         we explicitly call Application.Current.Shutdown(). -->
+    <Application.Resources />
+</Application>

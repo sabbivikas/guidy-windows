@@ -1,0 +1,6 @@
+worker/node_modules/
+worker/.dev.vars
+.DS_Store
+clicky-windows/obj/
+clicky-windows/bin/
+clicky-windows/.dotnet/
