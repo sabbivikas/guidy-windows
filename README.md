@@ -4,7 +4,7 @@ An AI buddy that lives next to your cursor. It can see your screen, talk to you,
 
 Hold **Ctrl+Alt** to talk. Release to send. It'll respond with voice and fly the cursor to whatever it's talking about.
 
-Windows port of [Clicky](https://github.com/farzaa/clicky) by [@farzaa](https://github.com/farzaa), originally built for macOS. All credit for the idea, design, and architecture goes to him — I just re-implemented it in C# so it runs natively on Windows.
+Windows port of [Clicky](https://github.com/farzaa/clicky) by [@farzaa](https://github.com/farzaa), originally built for macOS. All credit for the idea, design, and architecture goes to him I just re-implemented it in C# so it runs natively on Windows.
 
 ## Get started with Claude Code
 
