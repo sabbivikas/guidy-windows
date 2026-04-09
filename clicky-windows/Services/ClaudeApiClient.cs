@@ -5,24 +5,23 @@ using System.Text.Json;
 namespace ClickyWindows.Services;
 
 /// <summary>
-/// Sends vision requests directly to the Anthropic API and streams the response via SSE.
+/// Sends vision requests to Claude via the Cloudflare Worker proxy and streams
+/// the response back via SSE.
 /// </summary>
 public sealed class ClaudeApiClient
 {
-    private const string AnthropicApiUrl = "https://api.anthropic.com/v1/messages";
-    private const string AnthropicVersion = "2023-06-01";
-
-    private readonly string _apiKey;
+    private readonly string _chatProxyUrl;
     private readonly HttpClient _httpClient;
 
     public string Model { get; set; }
 
-    public ClaudeApiClient(string apiKey, string model = "claude-sonnet-4-6")
+    public ClaudeApiClient(string workerBaseUrl, string model = "claude-sonnet-4-6")
     {
-        _apiKey = apiKey;
+        _chatProxyUrl = $"{workerBaseUrl}/chat";
         Model = model;
+
         _httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(120) };
-        _ = WarmUpTlsConnectionAsync();
+        _ = WarmUpTlsConnectionAsync(workerBaseUrl);
     }
 
     public async Task<string> AnalyzeScreensAndAskAsync(
@@ -38,14 +37,14 @@ public sealed class ClaudeApiClient
         string requestJson = JsonSerializer.Serialize(requestBody);
 
         double payloadSizeMb = Encoding.UTF8.GetByteCount(requestJson) / 1_048_576.0;
-        Console.WriteLine($"🌐 Claude streaming request: {payloadSizeMb:F1}MB, {screenshots.Count} screenshot(s)");
+        Console.WriteLine(
+            $"🌐 Claude streaming request: {payloadSizeMb:F1}MB, {screenshots.Count} screenshot(s)"
+        );
 
-        var httpRequest = new HttpRequestMessage(HttpMethod.Post, AnthropicApiUrl)
+        var httpRequest = new HttpRequestMessage(HttpMethod.Post, _chatProxyUrl)
         {
             Content = new StringContent(requestJson, Encoding.UTF8, "application/json")
         };
-        httpRequest.Headers.Add("x-api-key", _apiKey);
-        httpRequest.Headers.Add("anthropic-version", AnthropicVersion);
 
         var response = await _httpClient.SendAsync(
             httpRequest,
@@ -56,7 +55,9 @@ public sealed class ClaudeApiClient
         if (!response.IsSuccessStatusCode)
         {
             string errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
-            throw new HttpRequestException($"Claude API error ({(int)response.StatusCode}): {errorBody}");
+            throw new HttpRequestException(
+                $"Claude API error ({(int)response.StatusCode}): {errorBody}"
+            );
         }
 
         var accumulatedResponseText = new StringBuilder();
@@ -68,6 +69,7 @@ public sealed class ClaudeApiClient
         {
             string? line = await streamReader.ReadLineAsync(cancellationToken);
             if (line == null) break;
+
             if (!line.StartsWith("data: ")) continue;
 
             string jsonPayload = line["data: ".Length..];
@@ -81,7 +83,10 @@ public sealed class ClaudeApiClient
         }
 
         string fullResponse = accumulatedResponseText.ToString();
-        Console.WriteLine($"🌐 Claude response complete: {fullResponse.Length} chars");
+        Console.WriteLine(
+            $"🌐 Claude response complete: {fullResponse.Length} chars"
+        );
+
         return fullResponse;
     }
 
@@ -107,15 +112,28 @@ public sealed class ClaudeApiClient
             contentBlocks.Add(new
             {
                 type = "image",
-                source = new { type = "base64", media_type = "image/jpeg", data = Convert.ToBase64String(jpegData) }
+                source = new
+                {
+                    type = "base64",
+                    media_type = "image/jpeg",
+                    data = Convert.ToBase64String(jpegData)
+                }
             });
+
             contentBlocks.Add(new { type = "text", text = label });
         }
 
         contentBlocks.Add(new { type = "text", text = userPrompt });
         messages.Add(new { role = "user", content = contentBlocks });
 
-        return new { model = Model, max_tokens = 1024, stream = true, system = systemPrompt, messages };
+        return new
+        {
+            model = Model,
+            max_tokens = 1024,
+            stream = true,
+            system = systemPrompt,
+            messages
+        };
     }
 
     private static string? ExtractTextDeltaFromSseEvent(string jsonPayload)
@@ -124,11 +142,14 @@ public sealed class ClaudeApiClient
         {
             using var doc = JsonDocument.Parse(jsonPayload);
             var root = doc.RootElement;
+
             if (!root.TryGetProperty("type", out var typeElement)) return null;
             if (typeElement.GetString() != "content_block_delta") return null;
+
             if (!root.TryGetProperty("delta", out var deltaElement)) return null;
             if (!deltaElement.TryGetProperty("type", out var deltaTypeElement)) return null;
             if (deltaTypeElement.GetString() != "text_delta") return null;
+
             if (!deltaElement.TryGetProperty("text", out var textElement)) return null;
             return textElement.GetString();
         }
@@ -138,16 +159,21 @@ public sealed class ClaudeApiClient
         }
     }
 
-    private async Task WarmUpTlsConnectionAsync()
+    private async Task WarmUpTlsConnectionAsync(string workerBaseUrl)
     {
         try
         {
+            var uri = new Uri(workerBaseUrl);
+            var warmupUrl = $"{uri.Scheme}://{uri.Host}/";
             await _httpClient.SendAsync(
-                new HttpRequestMessage(HttpMethod.Head, "https://api.anthropic.com/"),
+                new HttpRequestMessage(HttpMethod.Head, warmupUrl),
                 HttpCompletionOption.ResponseHeadersRead
             );
             Console.WriteLine("🌐 TLS warmup complete");
         }
-        catch { }
+        catch
+        {
+            // Intentionally ignored
+        }
     }
 }

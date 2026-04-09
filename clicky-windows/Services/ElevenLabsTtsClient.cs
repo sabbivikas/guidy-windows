@@ -6,12 +6,15 @@ using NAudio.Wave;
 namespace ClickyWindows.Services;
 
 /// <summary>
-/// Sends text directly to the ElevenLabs TTS API and plays the resulting MP3.
+/// Sends text to ElevenLabs TTS via the Cloudflare Worker proxy and plays
+/// the resulting MP3 audio through the default audio output device.
+///
+/// Mirrors ElevenLabsTTSClient.swift: POSTs to /tts, receives MP3 bytes,
+/// plays back with NAudio's WaveOutEvent + Mp3FileReader.
 /// </summary>
 public sealed class ElevenLabsTtsClient : IDisposable
 {
-    private readonly string _apiKey;
-    private readonly string _voiceId;
+    private readonly string _ttsProxyUrl;
     private readonly HttpClient _httpClient;
 
     private WaveOutEvent? _waveOut;
@@ -20,13 +23,19 @@ public sealed class ElevenLabsTtsClient : IDisposable
 
     public bool IsPlaying => _waveOut?.PlaybackState == PlaybackState.Playing;
 
-    public ElevenLabsTtsClient(string apiKey, string voiceId)
+    public ElevenLabsTtsClient(string workerBaseUrl)
     {
-        _apiKey = apiKey;
-        _voiceId = voiceId;
-        _httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+        _ttsProxyUrl = $"{workerBaseUrl}/tts";
+        _httpClient = new HttpClient
+        {
+            Timeout = TimeSpan.FromSeconds(30)
+        };
     }
 
+    /// <summary>
+    /// Sends text to ElevenLabs and plays the audio. Stops any currently
+    /// playing audio before starting new playback.
+    /// </summary>
     public async Task SpeakTextAsync(string textToSpeak, CancellationToken cancellationToken = default)
     {
         StopPlayback();
@@ -35,34 +44,46 @@ public sealed class ElevenLabsTtsClient : IDisposable
         {
             text = textToSpeak,
             model_id = "eleven_flash_v2_5",
-            voice_settings = new { stability = 0.5, similarity_boost = 0.75, speed = 1.2 }
+            voice_settings = new
+            {
+                stability = 0.5,
+                similarity_boost = 0.75,
+                speed = 1.2
+            }
         };
 
-        var request = new HttpRequestMessage(
-            HttpMethod.Post,
-            $"https://api.elevenlabs.io/v1/text-to-speech/{_voiceId}"
-        )
+        string requestJson = JsonSerializer.Serialize(requestBody);
+        var request = new HttpRequestMessage(HttpMethod.Post, _ttsProxyUrl)
         {
-            Content = new StringContent(JsonSerializer.Serialize(requestBody), Encoding.UTF8, "application/json")
+            Content = new StringContent(requestJson, Encoding.UTF8, "application/json")
         };
-        request.Headers.Add("xi-api-key", _apiKey);
-        request.Headers.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("audio/mpeg"));
+        request.Headers.Accept.Add(
+            new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("audio/mpeg")
+        );
 
         var response = await _httpClient.SendAsync(request, cancellationToken);
 
         if (!response.IsSuccessStatusCode)
         {
             string errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
-            throw new HttpRequestException($"ElevenLabs TTS error ({(int)response.StatusCode}): {errorBody}");
+            throw new HttpRequestException(
+                $"ElevenLabs TTS error ({(int)response.StatusCode}): {errorBody}"
+            );
         }
 
         byte[] mp3AudioData = await response.Content.ReadAsByteArrayAsync(cancellationToken);
-        Console.WriteLine($"🔊 ElevenLabs TTS: playing {mp3AudioData.Length / 1024}KB audio");
+
+        Console.WriteLine(
+            $"🔊 ElevenLabs TTS: playing {mp3AudioData.Length / 1024}KB audio"
+        );
+
         PlayMp3Audio(mp3AudioData);
     }
 
     private void PlayMp3Audio(byte[] mp3Data)
     {
+        // NAudio plays MP3 by wrapping a MemoryStream in Mp3FileReader,
+        // then feeding it to WaveOutEvent (DirectSound output).
         var memoryStream = new System.IO.MemoryStream(mp3Data);
         _mp3Reader = new Mp3FileReader(memoryStream);
         _waveOut = new WaveOutEvent();
@@ -75,6 +96,7 @@ public sealed class ElevenLabsTtsClient : IDisposable
         _waveOut?.Stop();
         _waveOut?.Dispose();
         _waveOut = null;
+
         _mp3Reader?.Dispose();
         _mp3Reader = null;
     }
@@ -83,6 +105,7 @@ public sealed class ElevenLabsTtsClient : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+
         StopPlayback();
         _httpClient.Dispose();
     }

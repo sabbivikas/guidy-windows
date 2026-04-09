@@ -1,5 +1,7 @@
 using System.Windows;
-using ClickyWindows.Services;
+
+// Alias to avoid ambiguity with System.Windows.Forms.Application (both are referenced
+// because TrayManager uses NotifyIcon which lives in WinForms).
 using WpfApplication = System.Windows.Application;
 
 namespace ClickyWindows;
@@ -13,21 +15,9 @@ public partial class App : WpfApplication
     {
         base.OnStartup(e);
 
-        if (!SettingsManager.SettingsExist())
-        {
-            var setup = new SetupWindow();
-            setup.ShowDialog();
-
-            if (!setup.SetupCompleted)
-            {
-                Shutdown();
-                return;
-            }
-        }
-
-        var settings = SettingsManager.Load();
-        _companionManager = new CompanionManager(settings);
+        _companionManager = new CompanionManager();
         _trayManager = new TrayManager(_companionManager);
+
         _companionManager.Start();
     }
 
