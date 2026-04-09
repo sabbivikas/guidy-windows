@@ -24,8 +24,6 @@ public enum CompanionVoiceState
 /// </summary>
 public sealed class CompanionManager : INotifyPropertyChanged, IDisposable
 {
-    public const string WorkerBaseUrl = "https://your-worker-name.your-subdomain.workers.dev";
-
     private const string SystemPrompt =
         "You are Clicky, a friendly AI learning companion that lives next to the user's cursor on Windows. " +
         "You can see their screen and help them understand what they're looking at. " +
@@ -111,15 +109,15 @@ public sealed class CompanionManager : INotifyPropertyChanged, IDisposable
         RegexOptions.Compiled
     );
 
-    public CompanionManager()
+    public CompanionManager(AppSettings settings)
     {
         _uiDispatcher = WpfApplication.Current.Dispatcher;
 
         _globalHotkeyMonitor = new GlobalHotkeyMonitor();
         _audioCaptureService = new AudioCaptureService();
-        _assemblyAiTranscriptionService = new AssemblyAiTranscriptionService(WorkerBaseUrl);
-        _claudeApiClient = new ClaudeApiClient(WorkerBaseUrl, _selectedModel);
-        _elevenLabsTtsClient = new ElevenLabsTtsClient(WorkerBaseUrl);
+        _assemblyAiTranscriptionService = new AssemblyAiTranscriptionService(settings.AssemblyAiApiKey);
+        _claudeApiClient = new ClaudeApiClient(settings.AnthropicApiKey, _selectedModel);
+        _elevenLabsTtsClient = new ElevenLabsTtsClient(settings.ElevenLabsApiKey, settings.ElevenLabsVoiceId);
     }
 
     public void Start()

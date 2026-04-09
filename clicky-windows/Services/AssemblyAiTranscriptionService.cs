@@ -1,4 +1,3 @@
-using System.Net.Http;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
@@ -11,8 +10,7 @@ namespace ClickyWindows.Services;
 /// </summary>
 public sealed class AssemblyAiTranscriptionService : IDisposable
 {
-    private readonly string _tokenProxyUrl;
-    private readonly HttpClient _httpClient;
+    private readonly string _apiKey;
 
     private ClientWebSocket? _webSocket;
     private CancellationTokenSource? _receiveCancellationTokenSource;
@@ -20,10 +18,9 @@ public sealed class AssemblyAiTranscriptionService : IDisposable
     private string _lastFinalTranscript = "";
     private bool _disposed = false;
 
-    public AssemblyAiTranscriptionService(string workerBaseUrl)
+    public AssemblyAiTranscriptionService(string apiKey)
     {
-        _tokenProxyUrl = $"{workerBaseUrl}/transcribe-token";
-        _httpClient = new HttpClient();
+        _apiKey = apiKey;
     }
 
     public async Task StartSessionAsync(
@@ -32,13 +29,10 @@ public sealed class AssemblyAiTranscriptionService : IDisposable
         Action<Exception> onError
     )
     {
-        _lastFinalTranscript = ""; // Reset for each new session
+        _lastFinalTranscript = "";
         try
         {
-            string temporaryToken = await FetchTemporaryTokenAsync();
-            Console.WriteLine(
-                $"🎙️ AssemblyAI: fetched token ({temporaryToken[..Math.Min(20, temporaryToken.Length)]}...)"
-            );
+            Console.WriteLine("🎙️ AssemblyAI: connecting...");
 
             _webSocket = new ClientWebSocket();
             _receiveCancellationTokenSource = new CancellationTokenSource();
@@ -49,7 +43,7 @@ public sealed class AssemblyAiTranscriptionService : IDisposable
                 $"&sample_rate=16000" +
                 $"&encoding=pcm_s16le" +
                 $"&end_of_turn_confidence_threshold=0.3" +
-                $"&token={Uri.EscapeDataString(temporaryToken)}"
+                $"&token={Uri.EscapeDataString(_apiKey)}"
             );
 
             await _webSocket.ConnectAsync(webSocketUrl, _receiveCancellationTokenSource.Token);
@@ -222,25 +216,6 @@ public sealed class AssemblyAiTranscriptionService : IDisposable
         }
     }
 
-    private async Task<string> FetchTemporaryTokenAsync()
-    {
-        var response = await _httpClient.PostAsync(_tokenProxyUrl, content: null);
-        response.EnsureSuccessStatusCode();
-
-        string responseBody = await response.Content.ReadAsStringAsync();
-
-        using var jsonDocument = JsonDocument.Parse(responseBody);
-        if (!jsonDocument.RootElement.TryGetProperty("token", out var tokenElement))
-        {
-            throw new InvalidOperationException(
-                $"AssemblyAI token response missing 'token' field. Response: {responseBody}"
-            );
-        }
-
-        return tokenElement.GetString()
-            ?? throw new InvalidOperationException("AssemblyAI token was null");
-    }
-
     public void Dispose()
     {
         if (_disposed) return;
@@ -248,6 +223,5 @@ public sealed class AssemblyAiTranscriptionService : IDisposable
 
         _receiveCancellationTokenSource?.Cancel();
         _webSocket?.Dispose();
-        _httpClient.Dispose();
     }
 }
