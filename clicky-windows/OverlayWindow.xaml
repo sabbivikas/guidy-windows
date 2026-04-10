@@ -65,6 +65,21 @@
             </StackPanel>
         </Canvas>
 
+        <!-- Pulsing highlight ring — shown at each pointed UI element -->
+        <Ellipse x:Name="HighlightRing"
+                 Width="60" Height="60"
+                 StrokeThickness="3"
+                 Fill="Transparent"
+                 Visibility="Collapsed"
+                 Opacity="0">
+            <Ellipse.Stroke>
+                <SolidColorBrush Color="#FF4488FF"/>
+            </Ellipse.Stroke>
+            <Ellipse.Effect>
+                <BlurEffect Radius="4"/>
+            </Ellipse.Effect>
+        </Ellipse>
+
         <!-- Response text bubble — appears near the cursor when Claude responds.
              Uses a dark rounded background with white text, similar to the macOS version. -->
         <Border x:Name="ResponseBubble"

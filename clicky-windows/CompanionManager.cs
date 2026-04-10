@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
+using System.Threading.Channels;
 using System.Windows.Threading;
 using WpfApplication = System.Windows.Application;
 using ClickyWindows.Services;
@@ -30,10 +31,13 @@ public sealed class CompanionManager : INotifyPropertyChanged, IDisposable
         "You are Clicky, a friendly AI learning companion that lives next to the user's cursor on Windows. " +
         "You can see their screen and help them understand what they're looking at. " +
         "Be concise — your responses will be spoken aloud via text-to-speech. " +
-        "When you want to point at a specific UI element in the screenshots, embed a tag like: " +
+        "IMPORTANT: Always respond in the same language the user speaks. If they speak Telugu, respond in Telugu. " +
+        "If Spanish, respond in Spanish. If Hindi, respond in Hindi. Match their language exactly. " +
+        "When you want to point at specific UI elements in the screenshots, embed tags like: " +
         "[POINT:x,y:description:Screen 1 (Primary)] where x,y are pixel coordinates in that screenshot " +
         "and the screen name matches the label shown with each image. " +
-        "Only include one POINT tag per response. Keep responses under 3 sentences when possible.";
+        "You can include multiple POINT tags to walk the user through several UI elements in sequence. " +
+        "Keep responses under 3 sentences when possible.";
 
     private CompanionVoiceState _voiceState = CompanionVoiceState.Idle;
     public CompanionVoiceState VoiceState
@@ -63,7 +67,7 @@ public sealed class CompanionManager : INotifyPropertyChanged, IDisposable
         private set { _audioPowerLevel = value; OnPropertyChanged(); }
     }
 
-    private string _selectedModel = "claude-sonnet-4-6";
+    private string _selectedModel = "claude-haiku-4-5-20251001";
     public string SelectedModel
     {
         get => _selectedModel;
@@ -92,7 +96,7 @@ public sealed class CompanionManager : INotifyPropertyChanged, IDisposable
     };
 
     public event Action<bool>? CursorEnabledChanged;
-    public event Action<PointingTarget>? PointingTargetDetected;
+    public event Action<List<PointingTarget>>? PointingTargetsDetected;
 
     private readonly GlobalHotkeyMonitor _globalHotkeyMonitor;
     private readonly AudioCaptureService _audioCaptureService;
@@ -200,6 +204,7 @@ public sealed class CompanionManager : INotifyPropertyChanged, IDisposable
     {
         var cancellationTokenSource = new CancellationTokenSource();
         _currentResponseCancellationTokenSource = cancellationTokenSource;
+        var ct = cancellationTokenSource.Token;
 
         try
         {
@@ -211,33 +216,68 @@ public sealed class CompanionManager : INotifyPropertyChanged, IDisposable
             VoiceState = CompanionVoiceState.Responding;
             StreamingResponseText = "";
 
+            // Sentence-streaming TTS: speak each sentence as Claude generates it
+            var sentenceChannel = Channel.CreateUnbounded<string>();
+            int lastSentenceEnd = 0;
+
+            var ttsTask = Task.Run(async () =>
+            {
+                await foreach (var sentence in sentenceChannel.Reader.ReadAllAsync(ct))
+                {
+                    var audioData = await _elevenLabsTtsClient.DownloadTtsAudioAsync(sentence, ct);
+                    await _elevenLabsTtsClient.PlayAndWaitAsync(audioData, ct);
+                }
+            }, ct);
+
             string fullResponse = await _claudeApiClient.AnalyzeScreensAndAskAsync(
                 screenshots,
                 SystemPrompt,
                 _conversationHistory,
                 userTranscript,
                 onTextChunk: responseText =>
+                {
                     _uiDispatcher.InvokeAsync(() =>
                         StreamingResponseText = StripPointTagsForDisplay(responseText)
-                    ),
-                cancellationToken: cancellationTokenSource.Token
+                    );
+
+                    // Detect complete sentences and queue them for TTS
+                    string cleanText = StripPointTagsForDisplay(responseText);
+                    while (lastSentenceEnd < cleanText.Length)
+                    {
+                        int nextEnd = FindSentenceEnd(cleanText, lastSentenceEnd);
+                        if (nextEnd < 0) break;
+                        string sentence = cleanText[lastSentenceEnd..nextEnd].Trim();
+                        lastSentenceEnd = nextEnd;
+                        if (sentence.Length > 0)
+                            sentenceChannel.Writer.TryWrite(sentence);
+                    }
+                },
+                cancellationToken: ct
             );
+
+            // Flush any remaining text as the final sentence
+            string cleanFull = StripPointTagsForDisplay(fullResponse);
+            string remaining = lastSentenceEnd < cleanFull.Length
+                ? cleanFull[lastSentenceEnd..].Trim()
+                : "";
+            if (remaining.Length > 0)
+                sentenceChannel.Writer.TryWrite(remaining);
+            sentenceChannel.Writer.Complete();
 
             _conversationHistory.Add((userTranscript, fullResponse));
             while (_conversationHistory.Count > 10)
                 _conversationHistory.RemoveAt(0);
 
-            var pointingTarget = ParsePointingTarget(fullResponse, capturedScreens);
-            if (pointingTarget != null)
+            // Handle pointing targets (multiple supported)
+            var pointingTargets = ParseAllPointingTargets(fullResponse, capturedScreens);
+            if (pointingTargets.Count > 0)
             {
                 await _uiDispatcher.InvokeAsync(() =>
-                    PointingTargetDetected?.Invoke(pointingTarget)
+                    PointingTargetsDetected?.Invoke(pointingTargets)
                 );
             }
 
-            string textForTts = StripPointTagsForDisplay(fullResponse);
-            await _elevenLabsTtsClient.SpeakTextAsync(textForTts, cancellationTokenSource.Token);
-
+            await ttsTask;
             await _uiDispatcher.InvokeAsync(() => VoiceState = CompanionVoiceState.Idle);
         }
         catch (OperationCanceledException)
@@ -256,44 +296,60 @@ public sealed class CompanionManager : INotifyPropertyChanged, IDisposable
         }
     }
 
-    private PointingTarget? ParsePointingTarget(
+    private static int FindSentenceEnd(string text, int startIndex)
+    {
+        for (int i = startIndex; i < text.Length; i++)
+        {
+            if (text[i] == '.' || text[i] == '!' || text[i] == '?')
+            {
+                if (i + 1 >= text.Length || char.IsWhiteSpace(text[i + 1]))
+                    return i + 1;
+            }
+        }
+        return -1;
+    }
+
+    private List<PointingTarget> ParseAllPointingTargets(
         string claudeResponse,
         IReadOnlyList<ScreenCaptureUtility.CapturedScreen> capturedScreens
     )
     {
-        var match = PointTagRegex.Match(claudeResponse);
-        if (!match.Success) return null;
+        var targets = new List<PointingTarget>();
+        var matches = PointTagRegex.Matches(claudeResponse);
 
-        if (!double.TryParse(match.Groups[1].Value, out double screenshotX)) return null;
-        if (!double.TryParse(match.Groups[2].Value, out double screenshotY)) return null;
-
-        // Group 3 is optional description; group 4 is always screenName
-        string screenName = match.Groups[4].Value.Trim();
-        string description = match.Groups[3].Success && match.Groups[3].Value.Trim().Length > 0
-            ? match.Groups[3].Value.Trim()
-            : screenName;
-
-        var targetScreen = capturedScreens.FirstOrDefault(s =>
-            s.Label.Equals(screenName, StringComparison.OrdinalIgnoreCase)
-        );
-
-        if (targetScreen == null)
+        foreach (Match match in matches)
         {
-            Console.WriteLine(
-                $"⚠️ POINT tag references unknown screen '{screenName}'"
+            if (!double.TryParse(match.Groups[1].Value, out double screenshotX)) continue;
+            if (!double.TryParse(match.Groups[2].Value, out double screenshotY)) continue;
+
+            string screenName = match.Groups[4].Value.Trim();
+            string description = match.Groups[3].Success && match.Groups[3].Value.Trim().Length > 0
+                ? match.Groups[3].Value.Trim()
+                : screenName;
+
+            var targetScreen = capturedScreens.FirstOrDefault(s =>
+                s.Label.Equals(screenName, StringComparison.OrdinalIgnoreCase)
             );
-            return null;
+
+            if (targetScreen == null)
+            {
+                Console.WriteLine($"⚠️ POINT tag references unknown screen '{screenName}'");
+                continue;
+            }
+
+            // Apply scale factor to convert from downscaled coordinates to actual screen coordinates
+            double actualScreenX = targetScreen.Bounds.X + (screenshotX * targetScreen.ScaleFactor);
+            double actualScreenY = targetScreen.Bounds.Y + (screenshotY * targetScreen.ScaleFactor);
+
+            Console.WriteLine(
+                $"🎯 POINT: ({screenshotX}, {screenshotY}) ×{targetScreen.ScaleFactor:F2} on '{screenName}' → " +
+                $"screen coords ({actualScreenX}, {actualScreenY}) — \"{description}\""
+            );
+
+            targets.Add(new PointingTarget(actualScreenX, actualScreenY, description, screenName));
         }
 
-        double actualScreenX = targetScreen.Bounds.X + screenshotX;
-        double actualScreenY = targetScreen.Bounds.Y + screenshotY;
-
-        Console.WriteLine(
-            $"🎯 POINT: ({screenshotX}, {screenshotY}) on '{screenName}' → " +
-            $"screen coords ({actualScreenX}, {actualScreenY}) — \"{description}\""
-        );
-
-        return new PointingTarget(actualScreenX, actualScreenY, description, screenName);
+        return targets;
     }
 
     private static string StripPointTagsForDisplay(string text)
