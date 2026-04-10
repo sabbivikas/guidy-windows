@@ -32,6 +32,9 @@ public partial class OverlayWindow : Window
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool SetCursorPos(int x, int y);
 
+    [DllImport("user32.dll")]
+    private static extern short GetAsyncKeyState(int vKey);
+
     [StructLayout(LayoutKind.Sequential)]
     private struct POINT { public int X; public int Y; }
 
@@ -42,6 +45,7 @@ public partial class OverlayWindow : Window
     private double _buddyPositionY = 0;
     private const double FollowSmoothingFactor = 0.18;
     private POINT? _cursorPosAtPointEnd = null;
+    private bool _waitingForUserDismiss = false;
 
     private CompanionManager? _companionManager;
 
@@ -82,6 +86,18 @@ public partial class OverlayWindow : Window
 
     private void OnCursorFollowTick(object? sender, EventArgs e)
     {
+        if (_waitingForUserDismiss)
+        {
+            if (IsUserInputDetected())
+            {
+                _waitingForUserDismiss = false;
+                HideResponseBubble();
+                CursorCanvas.BeginAnimation(System.Windows.Controls.Canvas.LeftProperty, null);
+                CursorCanvas.BeginAnimation(System.Windows.Controls.Canvas.TopProperty, null);
+            }
+            return;
+        }
+
         if (!GetCursorPos(out POINT screenCursorPos)) return;
 
         if (_cursorPosAtPointEnd.HasValue)
@@ -109,8 +125,8 @@ public partial class OverlayWindow : Window
         _buddyPositionX += (_currentCursorCanvasX - _buddyPositionX) * FollowSmoothingFactor;
         _buddyPositionY += (_currentCursorCanvasY - _buddyPositionY) * FollowSmoothingFactor;
 
-        double buddyLeft = _buddyPositionX - 30;
-        double buddyTop = _buddyPositionY - 30;
+        double buddyLeft = _buddyPositionX - 10;
+        double buddyTop = _buddyPositionY - 10;
 
         System.Windows.Controls.Canvas.SetLeft(CursorCanvas, buddyLeft);
         System.Windows.Controls.Canvas.SetTop(CursorCanvas, buddyTop);
@@ -157,6 +173,7 @@ public partial class OverlayWindow : Window
                 break;
 
             case CompanionVoiceState.Listening:
+                _waitingForUserDismiss = false;
                 HideResponseBubble();
                 ShowStatusBubble("Listening...");
                 WaveformPanel.Visibility = Visibility.Visible;
@@ -265,19 +282,28 @@ public partial class OverlayWindow : Window
         CursorCanvas.BeginAnimation(System.Windows.Controls.Canvas.LeftProperty, flyXAnimation);
         CursorCanvas.BeginAnimation(System.Windows.Controls.Canvas.TopProperty, flyYAnimation);
 
-        _cursorFollowTimer.Stop();
+        _waitingForUserDismiss = true;
+    }
 
-        var settleTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(3500) };
-        settleTimer.Tick += (_, _) =>
-        {
-            settleTimer.Stop();
-            GetCursorPos(out POINT curPos);
-            _cursorPosAtPointEnd = curPos;
-            CursorCanvas.BeginAnimation(System.Windows.Controls.Canvas.LeftProperty, null);
-            CursorCanvas.BeginAnimation(System.Windows.Controls.Canvas.TopProperty, null);
-            _cursorFollowTimer.Start();
-        };
-        settleTimer.Start();
+    private bool IsUserInputDetected()
+    {
+        // Mouse clicks
+        if ((GetAsyncKeyState(0x01) & 0x8000) != 0) return true; // Left
+        if ((GetAsyncKeyState(0x02) & 0x8000) != 0) return true; // Right
+
+        // Keyboard: letters, digits, space, enter, escape, backspace, delete, tab, arrows
+        for (int vk = 0x30; vk <= 0x5A; vk++) // 0-9, A-Z
+            if ((GetAsyncKeyState(vk) & 0x8000) != 0) return true;
+        if ((GetAsyncKeyState(0x20) & 0x8000) != 0) return true; // Space
+        if ((GetAsyncKeyState(0x0D) & 0x8000) != 0) return true; // Enter
+        if ((GetAsyncKeyState(0x1B) & 0x8000) != 0) return true; // Escape
+        if ((GetAsyncKeyState(0x08) & 0x8000) != 0) return true; // Backspace
+        if ((GetAsyncKeyState(0x2E) & 0x8000) != 0) return true; // Delete
+        if ((GetAsyncKeyState(0x09) & 0x8000) != 0) return true; // Tab
+        for (int vk = 0x25; vk <= 0x28; vk++) // Arrow keys
+            if ((GetAsyncKeyState(vk) & 0x8000) != 0) return true;
+
+        return false;
     }
 
     private void ShowPointingBubble(string description, double canvasX, double canvasY)
