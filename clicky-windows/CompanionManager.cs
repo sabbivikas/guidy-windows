@@ -24,7 +24,7 @@ public enum CompanionVoiceState
 /// </summary>
 public sealed class CompanionManager : INotifyPropertyChanged, IDisposable
 {
-    public const string WorkerBaseUrl = "https://your-worker-name.your-subdomain.workers.dev";
+    public const string WorkerBaseUrl = "https://clicky-proxy.sabbi-vikas.workers.dev";
 
     private const string SystemPrompt =
         "You are Clicky, a friendly AI learning companion that lives next to the user's cursor on Windows. " +
