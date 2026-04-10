@@ -218,10 +218,7 @@ public sealed class CompanionManager : INotifyPropertyChanged, IDisposable
                 SystemPrompt,
                 _conversationHistory,
                 userTranscript,
-                onTextChunk: responseText =>
-                    _uiDispatcher.InvokeAsync(() =>
-                        StreamingResponseText = StripPointTagsForDisplay(responseText)
-                    ),
+                onTextChunk: _ => { },
                 cancellationToken: cancellationTokenSource.Token
             );
 
@@ -238,7 +235,24 @@ public sealed class CompanionManager : INotifyPropertyChanged, IDisposable
             }
 
             string textForTts = StripPointTagsForDisplay(fullResponse);
-            await _elevenLabsTtsClient.SpeakTextAsync(textForTts, cancellationTokenSource.Token);
+            var audioDuration = await _elevenLabsTtsClient.SpeakTextAsync(textForTts, cancellationTokenSource.Token);
+
+            // Reveal text word-by-word in sync with audio duration
+            var words = textForTts.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (words.Length > 0)
+            {
+                int delayMs = Math.Max((int)(audioDuration.TotalMilliseconds / words.Length), 50);
+                var displayed = new System.Text.StringBuilder();
+                for (int i = 0; i < words.Length; i++)
+                {
+                    if (displayed.Length > 0) displayed.Append(' ');
+                    displayed.Append(words[i]);
+                    string text = displayed.ToString();
+                    await _uiDispatcher.InvokeAsync(() => StreamingResponseText = text);
+                    if (i < words.Length - 1)
+                        await Task.Delay(delayMs, cancellationTokenSource.Token);
+                }
+            }
 
             await _uiDispatcher.InvokeAsync(() => VoiceState = CompanionVoiceState.Idle);
         }

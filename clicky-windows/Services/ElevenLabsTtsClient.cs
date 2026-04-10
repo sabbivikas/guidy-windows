@@ -36,7 +36,7 @@ public sealed class ElevenLabsTtsClient : IDisposable
     /// Sends text to ElevenLabs and plays the audio. Stops any currently
     /// playing audio before starting new playback.
     /// </summary>
-    public async Task SpeakTextAsync(string textToSpeak, CancellationToken cancellationToken = default)
+    public async Task<TimeSpan> SpeakTextAsync(string textToSpeak, CancellationToken cancellationToken = default)
     {
         StopPlayback();
 
@@ -78,6 +78,7 @@ public sealed class ElevenLabsTtsClient : IDisposable
         );
 
         PlayMp3Audio(mp3AudioData);
+        return _mp3Reader?.TotalTime ?? TimeSpan.Zero;
     }
 
     private void PlayMp3Audio(byte[] mp3Data)
