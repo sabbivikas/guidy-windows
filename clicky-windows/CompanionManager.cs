@@ -30,6 +30,8 @@ public sealed class CompanionManager : INotifyPropertyChanged, IDisposable
         "You are Clicky, a friendly AI learning companion that lives next to the user's cursor on Windows. " +
         "You can see their screen and help them understand what they're looking at. " +
         "Be concise — your responses will be spoken aloud via text-to-speech. " +
+        "IMPORTANT: Always respond in the same language the user speaks. If they speak Telugu, respond in Telugu. " +
+        "If Spanish, respond in Spanish. If Hindi, respond in Hindi. Match their language exactly. " +
         "When you want to point at a specific UI element in the screenshots, embed a tag like: " +
         "[POINT:x,y:description:Screen 1 (Primary)] where x,y are pixel coordinates in that screenshot " +
         "and the screen name matches the label shown with each image. " +
@@ -238,11 +240,7 @@ public sealed class CompanionManager : INotifyPropertyChanged, IDisposable
             string textForTts = StripPointTagsForDisplay(fullResponse);
             await _elevenLabsTtsClient.SpeakTextAsync(textForTts, cancellationTokenSource.Token);
 
-            await _uiDispatcher.InvokeAsync(() =>
-            {
-                StreamingResponseText = "";
-                VoiceState = CompanionVoiceState.Idle;
-            });
+            await _uiDispatcher.InvokeAsync(() => VoiceState = CompanionVoiceState.Idle);
         }
         catch (OperationCanceledException)
         {
