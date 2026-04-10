@@ -32,7 +32,6 @@ public partial class CompanionPanelWindow : Window
         companionManager.PropertyChanged += OnCompanionPropertyChanged;
 
         // Set initial state
-        HaikuRadio.IsChecked = companionManager.SelectedModel == "claude-haiku-4-5-20251001";
         SonnetRadio.IsChecked = companionManager.SelectedModel == "claude-sonnet-4-6";
         OpusRadio.IsChecked = companionManager.SelectedModel == "claude-opus-4-6";
         CursorToggle.IsChecked = companionManager.IsCursorEnabled;
@@ -86,9 +85,7 @@ public partial class CompanionPanelWindow : Window
     {
         if (_companionManager == null) return;
 
-        if (HaikuRadio.IsChecked == true)
-            _companionManager.SelectedModel = "claude-haiku-4-5-20251001";
-        else if (SonnetRadio.IsChecked == true)
+        if (SonnetRadio.IsChecked == true)
             _companionManager.SelectedModel = "claude-sonnet-4-6";
         else if (OpusRadio.IsChecked == true)
             _companionManager.SelectedModel = "claude-opus-4-6";

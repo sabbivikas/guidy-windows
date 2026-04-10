@@ -125,18 +125,9 @@
                        Margin="0,0,0,8"/>
 
             <StackPanel Orientation="Horizontal" Margin="0,0,0,16">
-                <RadioButton x:Name="HaikuRadio"
-                             Content="Haiku 4.5"
-                             IsChecked="True"
-                             Foreground="#CCFFFFFF"
-                             FontSize="12"
-                             FontFamily="Segoe UI"
-                             Margin="0,0,16,0"
-                             Cursor="Hand"
-                             Checked="OnModelSelectionChanged"
-                             Tag="claude-haiku-4-5-20251001"/>
                 <RadioButton x:Name="SonnetRadio"
                              Content="Sonnet 4.6"
+                             IsChecked="True"
                              Foreground="#CCFFFFFF"
                              FontSize="12"
                              FontFamily="Segoe UI"

@@ -33,10 +33,13 @@ public sealed class ElevenLabsTtsClient : IDisposable
     }
 
     /// <summary>
-    /// Downloads TTS audio without playing it. Used for sentence-level streaming.
+    /// Sends text to ElevenLabs and plays the audio. Stops any currently
+    /// playing audio before starting new playback.
     /// </summary>
-    public async Task<byte[]> DownloadTtsAudioAsync(string textToSpeak, CancellationToken cancellationToken = default)
+    public async Task SpeakTextAsync(string textToSpeak, CancellationToken cancellationToken = default)
     {
+        StopPlayback();
+
         var requestBody = new
         {
             text = textToSpeak,
@@ -68,42 +71,24 @@ public sealed class ElevenLabsTtsClient : IDisposable
             );
         }
 
-        return await response.Content.ReadAsByteArrayAsync(cancellationToken);
+        byte[] mp3AudioData = await response.Content.ReadAsByteArrayAsync(cancellationToken);
+
+        Console.WriteLine(
+            $"🔊 ElevenLabs TTS: playing {mp3AudioData.Length / 1024}KB audio"
+        );
+
+        PlayMp3Audio(mp3AudioData);
     }
 
-    /// <summary>
-    /// Plays MP3 audio and waits for playback to complete.
-    /// </summary>
-    public async Task PlayAndWaitAsync(byte[] mp3Data, CancellationToken cancellationToken = default)
+    private void PlayMp3Audio(byte[] mp3Data)
     {
-        StopPlayback();
-
-        var tcs = new TaskCompletionSource();
+        // NAudio plays MP3 by wrapping a MemoryStream in Mp3FileReader,
+        // then feeding it to WaveOutEvent (DirectSound output).
         var memoryStream = new System.IO.MemoryStream(mp3Data);
         _mp3Reader = new Mp3FileReader(memoryStream);
         _waveOut = new WaveOutEvent();
         _waveOut.Init(_mp3Reader);
-        _waveOut.PlaybackStopped += (_, _) => tcs.TrySetResult();
-
-        using var registration = cancellationToken.Register(() =>
-        {
-            StopPlayback();
-            tcs.TrySetCanceled();
-        });
-
         _waveOut.Play();
-        Console.WriteLine($"🔊 ElevenLabs TTS: playing {mp3Data.Length / 1024}KB audio");
-        await tcs.Task;
-    }
-
-    /// <summary>
-    /// Returns the playback duration of MP3 audio data.
-    /// </summary>
-    public static TimeSpan GetMp3Duration(byte[] mp3Data)
-    {
-        using var stream = new System.IO.MemoryStream(mp3Data);
-        using var reader = new Mp3FileReader(stream);
-        return reader.TotalTime;
     }
 
     public void StopPlayback()

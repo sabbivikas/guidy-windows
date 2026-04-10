@@ -77,7 +77,7 @@ public partial class OverlayWindow : Window
     {
         _companionManager = companionManager;
         companionManager.PropertyChanged += OnCompanionManagerPropertyChanged;
-        companionManager.PointingTargetsDetected += OnPointingTargetsDetected;
+        companionManager.PointingTargetDetected += OnPointingTargetDetected;
     }
 
     private void OnCursorFollowTick(object? sender, EventArgs e)
@@ -235,105 +235,49 @@ public partial class OverlayWindow : Window
         scaleTransform.BeginAnimation(ScaleTransform.ScaleYProperty, pulseAnimation);
     }
 
-    private async void OnPointingTargetsDetected(List<PointingTarget> targets)
+    private void OnPointingTargetDetected(PointingTarget target)
     {
-        _cursorFollowTimer.Stop();
+        double targetCanvasX = target.ScreenX - SystemParameters.VirtualScreenLeft - 30;
+        double targetCanvasY = target.ScreenY - SystemParameters.VirtualScreenTop - 30;
 
-        foreach (var target in targets)
-        {
-            // Convert physical screen coordinates to WPF logical units (DPI-aware)
-            var presentationSource = PresentationSource.FromVisual(this);
-            var transformFromDevice = presentationSource?.CompositionTarget?.TransformFromDevice
-                ?? Matrix.Identity;
-            var logicalPoint = transformFromDevice.Transform(
-                new System.Windows.Point(target.ScreenX, target.ScreenY)
-            );
-
-            double targetCanvasX = logicalPoint.X - SystemParameters.VirtualScreenLeft;
-            double targetCanvasY = logicalPoint.Y - SystemParameters.VirtualScreenTop;
-
-            await AnimateCursorToAsync(targetCanvasX, targetCanvasY);
-            ShowHighlightRing(targetCanvasX, targetCanvasY);
-            ShowPointingBubble(target.Description, targetCanvasX + 40, targetCanvasY - 30);
-
-            await Task.Delay(2500);
-            HideHighlightRing();
-        }
-
-        GetCursorPos(out POINT curPos);
-        _cursorPosAtPointEnd = curPos;
-        CursorCanvas.BeginAnimation(System.Windows.Controls.Canvas.LeftProperty, null);
-        CursorCanvas.BeginAnimation(System.Windows.Controls.Canvas.TopProperty, null);
-        _cursorFollowTimer.Start();
-    }
-
-    private Task AnimateCursorToAsync(double targetCanvasX, double targetCanvasY)
-    {
-        var tcs = new TaskCompletionSource();
-
-        double cursorTargetX = targetCanvasX - 30;
-        double cursorTargetY = targetCanvasY - 30;
-
-        var flyDuration = TimeSpan.FromMilliseconds(500);
+        var flyDuration = TimeSpan.FromMilliseconds(600);
         var easingFunction = new CubicEase { EasingMode = EasingMode.EaseInOut };
 
         var flyXAnimation = new DoubleAnimation(
             System.Windows.Controls.Canvas.GetLeft(CursorCanvas),
-            cursorTargetX,
+            targetCanvasX,
             flyDuration
         )
         { EasingFunction = easingFunction };
 
         var flyYAnimation = new DoubleAnimation(
             System.Windows.Controls.Canvas.GetTop(CursorCanvas),
-            cursorTargetY,
+            targetCanvasY,
             flyDuration
         )
         { EasingFunction = easingFunction };
 
-        flyXAnimation.Completed += (_, _) => tcs.TrySetResult();
+        flyXAnimation.Completed += (_, _) =>
+        {
+            ShowPointingBubble(target.Description, targetCanvasX + 70, targetCanvasY - 10);
+        };
 
         CursorCanvas.BeginAnimation(System.Windows.Controls.Canvas.LeftProperty, flyXAnimation);
         CursorCanvas.BeginAnimation(System.Windows.Controls.Canvas.TopProperty, flyYAnimation);
 
-        return tcs.Task;
-    }
+        _cursorFollowTimer.Stop();
 
-    private void ShowHighlightRing(double canvasX, double canvasY)
-    {
-        double ringSize = 60;
-        System.Windows.Controls.Canvas.SetLeft(HighlightRing, canvasX - ringSize / 2);
-        System.Windows.Controls.Canvas.SetTop(HighlightRing, canvasY - ringSize / 2);
-        HighlightRing.Width = ringSize;
-        HighlightRing.Height = ringSize;
-        HighlightRing.Visibility = Visibility.Visible;
-
-        HighlightRing.BeginAnimation(OpacityProperty,
-            new DoubleAnimation(0, 0.8, TimeSpan.FromMilliseconds(200)));
-
-        var scaleTransform = new ScaleTransform(1, 1, ringSize / 2, ringSize / 2);
-        HighlightRing.RenderTransform = scaleTransform;
-
-        var pulseAnim = new DoubleAnimation(1.0, 1.3, TimeSpan.FromMilliseconds(600))
+        var settleTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(650) };
+        settleTimer.Tick += (_, _) =>
         {
-            AutoReverse = true,
-            RepeatBehavior = RepeatBehavior.Forever,
-            EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut }
+            settleTimer.Stop();
+            GetCursorPos(out POINT curPos);
+            _cursorPosAtPointEnd = curPos;
+            CursorCanvas.BeginAnimation(System.Windows.Controls.Canvas.LeftProperty, null);
+            CursorCanvas.BeginAnimation(System.Windows.Controls.Canvas.TopProperty, null);
+            _cursorFollowTimer.Start();
         };
-
-        scaleTransform.BeginAnimation(ScaleTransform.ScaleXProperty, pulseAnim);
-        scaleTransform.BeginAnimation(ScaleTransform.ScaleYProperty, pulseAnim);
-    }
-
-    private void HideHighlightRing()
-    {
-        var fadeOut = new DoubleAnimation(HighlightRing.Opacity, 0, TimeSpan.FromMilliseconds(300));
-        fadeOut.Completed += (_, _) =>
-        {
-            HighlightRing.Visibility = Visibility.Collapsed;
-            HighlightRing.RenderTransform = null;
-        };
-        HighlightRing.BeginAnimation(OpacityProperty, fadeOut);
+        settleTimer.Start();
     }
 
     private void ShowPointingBubble(string description, double canvasX, double canvasY)

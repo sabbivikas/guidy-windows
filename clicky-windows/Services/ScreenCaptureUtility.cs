@@ -15,7 +15,7 @@ namespace ClickyWindows.Services;
 /// </summary>
 public static class ScreenCaptureUtility
 {
-    public record CapturedScreen(byte[] JpegData, string Label, Rectangle Bounds, double ScaleFactor);
+    public record CapturedScreen(byte[] JpegData, string Label, Rectangle Bounds);
 
     /// <summary>
     /// Captures all connected monitors and returns JPEG data + labels.
@@ -38,8 +38,8 @@ public static class ScreenCaptureUtility
                 ? $"Screen {screenIndex + 1} (Primary)"
                 : $"Screen {screenIndex + 1}";
 
-            var (jpegData, scaleFactor) = CaptureScreenToJpeg(screen.Bounds);
-            capturedScreens.Add(new CapturedScreen(jpegData, screenLabel, screen.Bounds, scaleFactor));
+            byte[] jpegData = CaptureScreenToJpeg(screen.Bounds);
+            capturedScreens.Add(new CapturedScreen(jpegData, screenLabel, screen.Bounds));
 
             System.Diagnostics.Debug.WriteLine(
                 $"📸 Captured {screenLabel}: {screen.Bounds.Width}x{screen.Bounds.Height}, " +
@@ -50,13 +50,12 @@ public static class ScreenCaptureUtility
         return capturedScreens;
     }
 
-    private static (byte[] JpegData, double ScaleFactor) CaptureScreenToJpeg(Rectangle screenBounds)
+    private static byte[] CaptureScreenToJpeg(Rectangle screenBounds)
     {
-        const int MaxWidth = 1280;
-
         using var bitmap = new Bitmap(screenBounds.Width, screenBounds.Height, PixelFormat.Format32bppArgb);
         using var graphics = Graphics.FromImage(bitmap);
 
+        // CopyFromScreen captures the screen pixels into our bitmap
         graphics.CopyFromScreen(
             screenBounds.Location,
             Point.Empty,
@@ -64,30 +63,15 @@ public static class ScreenCaptureUtility
             CopyPixelOperation.SourceCopy
         );
 
-        Bitmap outputBitmap = bitmap;
-        double scaleFactor = 1.0;
-
-        if (screenBounds.Width > MaxWidth)
-        {
-            scaleFactor = (double)screenBounds.Width / MaxWidth;
-            int newHeight = (int)(screenBounds.Height / scaleFactor);
-            outputBitmap = new Bitmap(MaxWidth, newHeight);
-            using var resizeGraphics = Graphics.FromImage(outputBitmap);
-            resizeGraphics.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBilinear;
-            resizeGraphics.DrawImage(bitmap, 0, 0, MaxWidth, newHeight);
-        }
-
         using var memoryStream = new MemoryStream();
+
+        // JPEG at quality 85 — good enough for Claude's vision API, smaller than PNG
         var jpegEncoder = GetJpegEncoder();
         var encoderParameters = new EncoderParameters(1);
-        encoderParameters.Param[0] = new EncoderParameter(Encoder.Quality, 70L);
+        encoderParameters.Param[0] = new EncoderParameter(Encoder.Quality, 85L);
 
-        outputBitmap.Save(memoryStream, jpegEncoder, encoderParameters);
-
-        if (outputBitmap != bitmap)
-            outputBitmap.Dispose();
-
-        return (memoryStream.ToArray(), scaleFactor);
+        bitmap.Save(memoryStream, jpegEncoder, encoderParameters);
+        return memoryStream.ToArray();
     }
 
     private static ImageCodecInfo GetJpegEncoder()
