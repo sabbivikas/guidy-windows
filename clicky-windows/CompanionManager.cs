@@ -238,7 +238,11 @@ public sealed class CompanionManager : INotifyPropertyChanged, IDisposable
             string textForTts = StripPointTagsForDisplay(fullResponse);
             await _elevenLabsTtsClient.SpeakTextAsync(textForTts, cancellationTokenSource.Token);
 
-            await _uiDispatcher.InvokeAsync(() => VoiceState = CompanionVoiceState.Idle);
+            await _uiDispatcher.InvokeAsync(() =>
+            {
+                StreamingResponseText = "";
+                VoiceState = CompanionVoiceState.Idle;
+            });
         }
         catch (OperationCanceledException)
         {
