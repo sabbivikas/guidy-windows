@@ -129,7 +129,7 @@ public sealed class ClaudeApiClient
         return new
         {
             model = Model,
-            max_tokens = 512,
+            max_tokens = 1024,
             stream = true,
             system = systemPrompt,
             messages

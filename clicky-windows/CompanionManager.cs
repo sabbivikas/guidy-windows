@@ -33,10 +33,11 @@ public sealed class CompanionManager : INotifyPropertyChanged, IDisposable
         "Be concise — your responses will be spoken aloud via text-to-speech. " +
         "IMPORTANT: Always respond in the same language the user speaks. If they speak Telugu, respond in Telugu. " +
         "If Spanish, respond in Spanish. If Hindi, respond in Hindi. Match their language exactly. " +
-        "When you want to point at specific UI elements in the screenshots, embed tags like: " +
+        "When your response references a visible UI element, you MUST embed a POINT tag like: " +
         "[POINT:x,y:description:Screen 1 (Primary)] where x,y are pixel coordinates in that screenshot " +
         "and the screen name matches the label shown with each image. " +
-        "You can include multiple POINT tags to walk the user through several UI elements in sequence. " +
+        "Always include at least one POINT tag per response to highlight what you're talking about. " +
+        "You may include multiple POINT tags to walk the user through several UI elements in sequence. " +
         "Keep responses under 3 sentences when possible.";
 
     private CompanionVoiceState _voiceState = CompanionVoiceState.Idle;
@@ -111,7 +112,7 @@ public sealed class CompanionManager : INotifyPropertyChanged, IDisposable
     private bool _disposed = false;
 
     private static readonly Regex PointTagRegex = new(
-        @"\[POINT:(\d+(?:\.\d+)?)[:,](\d+(?:\.\d+)?):(?:([^:\]]+):)?([^\]]+)\]",
+        @"\[POINT:\s*(\d+(?:\.\d+)?)\s*[:,]\s*(\d+(?:\.\d+)?)\s*:\s*(?:([^:\]]+?)\s*:\s*)?([^\]]+?)\s*\]",
         RegexOptions.Compiled
     );
 
@@ -220,12 +221,38 @@ public sealed class CompanionManager : INotifyPropertyChanged, IDisposable
             var sentenceChannel = Channel.CreateUnbounded<string>();
             int lastSentenceEnd = 0;
 
+            // TTS consumer: download audio, then reveal words in sync with playback
+            var displayedText = new System.Text.StringBuilder();
+
             var ttsTask = Task.Run(async () =>
             {
                 await foreach (var sentence in sentenceChannel.Reader.ReadAllAsync(ct))
                 {
                     var audioData = await _elevenLabsTtsClient.DownloadTtsAudioAsync(sentence, ct);
-                    await _elevenLabsTtsClient.PlayAndWaitAsync(audioData, ct);
+                    var duration = ElevenLabsTtsClient.GetMp3Duration(audioData);
+
+                    // Start audio playback
+                    var playbackTask = _elevenLabsTtsClient.PlayAndWaitAsync(audioData, ct);
+
+                    // Reveal words one at a time in sync with audio
+                    var words = sentence.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    if (words.Length > 0)
+                    {
+                        int delayMs = Math.Max((int)(duration.TotalMilliseconds / words.Length), 50);
+
+                        for (int i = 0; i < words.Length; i++)
+                        {
+                            if (displayedText.Length > 0) displayedText.Append(' ');
+                            displayedText.Append(words[i]);
+                            string text = displayedText.ToString();
+                            await _uiDispatcher.InvokeAsync(() => StreamingResponseText = text);
+                            if (i < words.Length - 1)
+                                await Task.Delay(delayMs, ct);
+                        }
+                    }
+
+                    // Wait for audio to finish if word reveal completed first
+                    await playbackTask;
                 }
             }, ct);
 
@@ -236,11 +263,8 @@ public sealed class CompanionManager : INotifyPropertyChanged, IDisposable
                 userTranscript,
                 onTextChunk: responseText =>
                 {
-                    _uiDispatcher.InvokeAsync(() =>
-                        StreamingResponseText = StripPointTagsForDisplay(responseText)
-                    );
-
                     // Detect complete sentences and queue them for TTS
+                    // (text display is handled by word-by-word reveal in TTS consumer)
                     string cleanText = StripPointTagsForDisplay(responseText);
                     while (lastSentenceEnd < cleanText.Length)
                     {

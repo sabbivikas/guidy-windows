@@ -96,6 +96,16 @@ public sealed class ElevenLabsTtsClient : IDisposable
         await tcs.Task;
     }
 
+    /// <summary>
+    /// Returns the playback duration of MP3 audio data.
+    /// </summary>
+    public static TimeSpan GetMp3Duration(byte[] mp3Data)
+    {
+        using var stream = new System.IO.MemoryStream(mp3Data);
+        using var reader = new Mp3FileReader(stream);
+        return reader.TotalTime;
+    }
+
     public void StopPlayback()
     {
         _waveOut?.Stop();
