@@ -267,7 +267,7 @@ public partial class OverlayWindow : Window
 
         _cursorFollowTimer.Stop();
 
-        var settleTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(650) };
+        var settleTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(3500) };
         settleTimer.Tick += (_, _) =>
         {
             settleTimer.Stop();
